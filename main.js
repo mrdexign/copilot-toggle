@@ -1,24 +1,32 @@
-const { app, BrowserWindow, globalShortcut, screen, Tray, Menu } = require('electron');
+if (require('electron-squirrel-startup')) app?.quit?.();
+
 const path = require('path');
 const AutoLaunch = require('auto-launch');
+const { exec } = require('child_process');
+const { app, BrowserWindow, globalShortcut, screen, Tray, Menu, clipboard } = require('electron');
 
-let mainWindow;
+let win;
 let tray;
-let isDev = process.env.NODE_ENV !== 'production';
+let isAnimating = false;
+const iconPath = path.join(__dirname, 'icons/icon.ico');
+
+const autoLauncher = new AutoLaunch({ name: 'Copilot Assistant', path: app?.getPath('exe') });
+if (process.env.NODE_ENV !== 'production') autoLauncher.disable();
 
 function createWindow() {
 	const primaryDisplay = screen.getPrimaryDisplay();
 	const { width, height } = primaryDisplay.workAreaSize;
 
-	mainWindow = new BrowserWindow({
+	win = new BrowserWindow({
 		width: width,
 		height: height,
 		x: 0,
 		y: 0,
 		frame: false,
 		show: false,
-		fullscreen: true,
-		skipTaskbar: true, // Hides the app from the taskbar
+		transparent: true,
+		skipTaskbar: true,
+		icon: iconPath,
 		webPreferences: {
 			preload: path.join(__dirname, 'preload.js'),
 			webviewTag: true,
@@ -27,44 +35,92 @@ function createWindow() {
 		},
 	});
 
-	mainWindow.loadURL('https://copilot.microsoft.com/chats');
+	win.loadURL('https://copilot.microsoft.com/chats');
 
-	// Instead of closing, hide the window
-	mainWindow.on('close', event => {
-		if (!app.isQuitting) {
+	win.on('close', event => {
+		if (!app?.isQuitting) {
 			event.preventDefault();
-			mainWindow.hide();
+			win.hide();
 		}
 		return false;
 	});
 
-	mainWindow.on('closed', () => {
-		mainWindow = null;
+	win.on('closed', () => {
+		win = null;
 	});
 }
 
-function createTray() {
-	const iconPath = path.join(__dirname, 'icons/icon.ico');
+function fadeIn(window) {
+	if (isAnimating || window.isVisible()) return;
+	isAnimating = true;
+
+	const currentScreen = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+	window.setBounds(currentScreen.bounds);
+	window.setOpacity(0);
+	window.show();
+
+	let opacity = 0;
+	const interval = setInterval(() => {
+		opacity += 0.1;
+		if (opacity >= 1) {
+			window.setOpacity(1);
+			clearInterval(interval);
+			isAnimating = false;
+		} else {
+			window.setOpacity(opacity);
+		}
+	}, 15);
+}
+
+function fadeOut(window) {
+	if (isAnimating || !window.isVisible()) return;
+	isAnimating = true;
+
+	let opacity = 1;
+	const interval = setInterval(() => {
+		opacity -= 0.1;
+		if (opacity <= 0) {
+			window.setOpacity(0);
+			window.hide();
+			clearInterval(interval);
+			isAnimating = false;
+		} else {
+			window.setOpacity(opacity);
+		}
+	}, 15);
+}
+
+function toggleWindow() {
+	if (win.isVisible()) {
+		fadeOut(win);
+	} else {
+		fadeIn(win);
+		win.focus();
+	}
+}
+
+async function createTray() {
 	tray = new Tray(iconPath);
 
-	const toggleWindow = () => {
-		if (mainWindow.isVisible()) {
-			mainWindow.hide();
-		} else {
-			const currentScreen = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-			mainWindow.setBounds(currentScreen.bounds);
-			mainWindow.show();
-		}
-	};
+	const isAutoLaunchEnabled = await autoLauncher.isEnabled();
 
 	const contextMenu = Menu.buildFromTemplate([
 		{ label: 'Show/Hide Copilot', click: toggleWindow },
 		{ type: 'separator' },
 		{
+			label: 'Auto-launch on startup',
+			type: 'checkbox',
+			checked: isAutoLaunchEnabled,
+			click: menuItem => {
+				menuItem.checked ? autoLauncher.enable() : autoLauncher.disable();
+			},
+		},
+		{ type: 'separator' },
+		{
 			label: 'Quit',
 			click: () => {
 				app.isQuitting = true;
-				app.quit();
+				app?.quit();
 			},
 		},
 	]);
@@ -72,57 +128,69 @@ function createTray() {
 	tray.setToolTip('Copilot Assistant');
 	tray.setContextMenu(contextMenu);
 
-	// Also toggle on single click
 	tray.on('click', toggleWindow);
 }
 
-app.on('ready', () => {
+app?.on('ready', async () => {
 	createWindow();
-	createTray();
+	await createTray();
 
-	// Register a global shortcut listener.
-	const ret = globalShortcut.register('Alt+C', () => {
-		if (mainWindow.isVisible()) {
-			mainWindow.hide();
-		} else {
-			const currentScreen = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-			mainWindow.setBounds(currentScreen.bounds);
-			mainWindow.show();
-		}
-	});
+	// Register a global shortcut to toggle the window
+	const toggleShortcut = globalShortcut.register('Alt+C', toggleWindow);
+	if (!toggleShortcut) console.log('Alt+C registration failed');
 
-	if (!ret) {
-		console.log('Registration failed');
-	}
+	// Register a global shortcut to copy, format, and paste selected text for rephrasing
+	const rephraseShortcut = globalShortcut.register('Alt+R', () => askAI(`Rephrase in Short, Concise, Formal and Creative versions`));
+	if (!rephraseShortcut) console.log('Alt+R registration failed');
+
+	// Register a global shortcut to spot grammar mistakes and share the lesson for formatting
+	const grammarShortcut = globalShortcut.register('Alt+G', () => askAI(`Spot any grammar mistakes and share the lesson`));
+	if (!grammarShortcut) console.log('Alt+G registration failed');
+
+	// Register a global shortcut to translate the text to Persian and identify critical vocabulary for learning
+	const persianShortcut = globalShortcut.register('Alt+P', () => askAI(`Translate to Persian and identify critical vocab for learning`));
+	if (!persianShortcut) console.log('Alt+P registration failed');
 });
 
-// This event is fired before quitting the app
-app.on('before-quit', () => {
+function askAI(promptPrefix) {
+	if (process.platform !== 'win32') {
+		console.log('Text action shortcuts are only available on Windows.');
+		return;
+	}
+
+	const copyCommand = 'powershell -command "$wshell = New-Object -ComObject wscript.shell; $wshell.SendKeys(\'^{c}\')"';
+	exec(copyCommand, error => {
+		if (error) return console.error(`Failed to copy selected text: ${error}`);
+
+		setTimeout(async () => {
+			const selectedText = clipboard.readText();
+			if (!selectedText) {
+				console.log('No text was selected or the clipboard is empty.');
+				return;
+			}
+
+			const promptText = `${promptPrefix}:\n${selectedText}`;
+			await clipboard.writeText(promptText);
+
+			if (!win.isVisible()) toggleWindow();
+			else win.focus();
+
+			setTimeout(() => {
+				win.webContents.focus();
+				win.webContents.send('ask', { value: promptText });
+			}, 100);
+		}, 150);
+	});
+}
+
+app?.on('before-quit', () => {
 	app.isQuitting = true;
 });
 
-app.on('window-all-closed', () => {
-	// On macOS it is common for applications and their menu bar
-	// to stay active until the user quits explicitly with Cmd + Q
-	if (process.platform !== 'darwin') {
-		app.quit();
-	}
+app?.on('window-all-closed', () => {
+	if (process.platform !== 'darwin') app?.quit();
 });
 
-app.on('activate', () => {
-	// On macOS it's common to re-create a window in the app when the
-	// dock icon is clicked and there are no other windows open.
-	if (BrowserWindow.getAllWindows().length === 0) {
-		createWindow();
-	}
-});
-
-// Auto-launch configuration
-let autoLaunch = new AutoLaunch({
-	name: 'Copilot Assistant',
-	path: app.getPath('exe'),
-});
-
-autoLaunch.isEnabled().then(isEnabled => {
-	if (!isEnabled) autoLaunch.enable();
+app?.on('activate', () => {
+	if (!BrowserWindow.getAllWindows().length) createWindow();
 });

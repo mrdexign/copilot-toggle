@@ -1,7 +1,11 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('electronAPI', {
-	// You can expose specific APIs here if your renderer process needs them.
-	// For this application, we don't need to expose any specific APIs
-	// as the main process handles the window toggling.
+ipcRenderer.on('ask', (_, { value }) => {
+	const input = document.querySelector('#userInput');
+	if (!input) return;
+	input.value = value;
+	input.dispatchEvent(new Event('input', { bubbles: true }));
+
+	const btn = document.querySelector('button[aria-label="Submit message"]');
+	if (btn) btn.click();
 });
