@@ -1,3 +1,11 @@
 {
-	"cSpell.words": ["asar"]
+	"cSpell.words": ["asar"],
+	"files.exclude": {
+		".qodo": true,
+		"**/.git": true,
+		"**/.svn": true,
+		"**/.hg": true,
+		"**/.DS_Store": true,
+		"**/Thumbs.db": true
+	}
 }

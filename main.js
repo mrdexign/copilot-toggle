@@ -148,8 +148,8 @@ app?.on('ready', async () => {
 	if (!grammarShortcut) console.log('Alt+G registration failed');
 
 	// Register a global shortcut to translate the text to Persian and identify critical vocabulary for learning
-	const persianShortcut = globalShortcut.register('Alt+P', () => askAI(`Translate to Persian and identify critical vocab for learning`));
-	if (!persianShortcut) console.log('Alt+P registration failed');
+	const persianShortcut = globalShortcut.register('Alt+L', () => askAI(`Translate to Persian and identify critical vocab for learning`));
+	if (!persianShortcut) console.log('Alt+L registration failed');
 });
 
 function askAI(promptPrefix) {
