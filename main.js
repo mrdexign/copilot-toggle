@@ -150,9 +150,13 @@ app?.on('ready', async () => {
 	// Register a global shortcut to translate the text to Persian and identify critical vocabulary for learning
 	const persianShortcut = globalShortcut.register('Alt+L', () => askAI(`Translate to Persian and identify critical vocab for learning`));
 	if (!persianShortcut) console.log('Alt+L registration failed');
+
+	// Register a global shortcut to copy the text from the clipboard
+	const clipboardShortcut = globalShortcut.register('Alt+M', () => askAI(`From Clipboard`, false));
+	if (!clipboardShortcut) console.log('Alt+M registration failed');
 });
 
-function askAI(promptPrefix) {
+function askAI(promptPrefix, enter = true) {
 	if (process.platform !== 'win32') {
 		console.log('Text action shortcuts are only available on Windows.');
 		return;
@@ -168,16 +172,12 @@ function askAI(promptPrefix) {
 				console.log('No text was selected or the clipboard is empty.');
 				return;
 			}
-
 			const promptText = `${promptPrefix}:\n${selectedText}`;
 			await clipboard.writeText(promptText);
-
-			if (!win.isVisible()) toggleWindow();
-			else win.focus();
-
+			win.isVisible() ? win.focus() : toggleWindow();
 			setTimeout(() => {
 				win.webContents.focus();
-				win.webContents.send('ask', { value: promptText });
+				win.webContents.send('ask', { value: promptText, enter });
 			}, 100);
 		}, 150);
 	});
