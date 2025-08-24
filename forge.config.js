@@ -12,7 +12,7 @@ module.exports = {
 		{
 			name: '@electron-forge/maker-squirrel',
 			config: {
-				name: 'copilot_toggle',
+				name: 'CopilotToggle',
 				setupIcon: path.join(__dirname, 'icons/icon.ico'),
 			},
 		},

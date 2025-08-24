@@ -1,12 +1,12 @@
 {
 	"name": "copilot-toggle",
-	"version": "1.0.0",
+	"version": "1.2.0",
 	"description": "An Electron app to quickly access Copilot.",
 	"main": "main.js",
 	"scripts": {
+		"make": "electron-forge make",
 		"start": "electron-forge start",
-		"package": "electron-forge package",
-		"make": "electron-forge make"
+		"package": "electron-forge package"
 	},
 	"keywords": [],
 	"author": "MrDexign",

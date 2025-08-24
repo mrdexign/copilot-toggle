@@ -1,5 +1,5 @@
 {
-	"cSpell.words": ["asar"],
+	"cSpell.words": ["asar", "wscript", "wshell"],
 	"files.exclude": {
 		".qodo": true,
 		"**/.git": true,
