@@ -155,7 +155,7 @@ app?.on('ready', async () => {
 	const toggleShortcut = globalShortcut.register('Alt+C', toggleWindow);
 	if (!toggleShortcut) console.log('Alt+C registration failed');
 
-	const rephraseShortcut = globalShortcut.register('Alt+R', () => askAI(`Rephrase in Short, Concise, Formal and Creative versions`));
+	const rephraseShortcut = globalShortcut.register('Alt+R', () => askAI(`Rephrase in Regular, Formal and Detailed versions`));
 	if (!rephraseShortcut) console.log('Alt+R registration failed');
 
 	const grammarShortcut = globalShortcut.register('Alt+G', () => askAI(`Spot any grammar mistakes and share the lesson`));
