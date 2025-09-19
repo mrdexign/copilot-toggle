@@ -39,6 +39,43 @@ const createWindow = () => {
 
 	win.loadURL('https://copilot.microsoft.com/chats');
 
+	let retryCount = 0;
+	const maxRetries = 10;
+	const retryInterval = 1500;
+
+	const ensureLoaded = () => {
+		if (!win || win.webContents.isLoading()) return;
+		win.webContents
+			.executeJavaScript(`!!document.getElementById('userInput')`)
+			.then(isLoaded => {
+				if (isLoaded) {
+					console.log('Copilot is fully loaded.');
+					retryCount = maxRetries;
+				} else if (retryCount < maxRetries) {
+					retryCount++;
+					console.log(`Retrying Copilot load (${retryCount}/${maxRetries})...`);
+					win.webContents.reload();
+					setTimeout(ensureLoaded, retryInterval);
+				} else {
+					console.warn('Max retries reached. Copilot may not have loaded correctly.');
+				}
+			})
+			.catch(err => {
+				console.error('Error checking DOM:', err);
+			});
+	};
+
+	win.webContents.on('did-fail-load', () => {
+		console.warn('Initial load failed. Starting retry loop...');
+		retryCount = 0;
+		setTimeout(ensureLoaded, retryInterval);
+	});
+
+	win.webContents.on('did-finish-load', () => {
+		console.log('Initial load finished. Verifying DOM...');
+		setTimeout(ensureLoaded, retryInterval);
+	});
+
 	win.on('close', event => {
 		if (!app?.isQuitting) {
 			event.preventDefault();
