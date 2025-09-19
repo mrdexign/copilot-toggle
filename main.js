@@ -4,8 +4,8 @@ const { exec } = require('child_process');
 const { app, BrowserWindow, globalShortcut, screen, Tray, Menu, clipboard } = require('electron');
 if (require('electron-squirrel-startup')) app?.quit?.();
 
-let win;
-let tray;
+let win = null;
+let tray = null;
 let isAnimating = false;
 const isPackaged = app.isPackaged;
 const iconPath = path.join(__dirname, 'icons/icon.ico');
@@ -14,6 +14,8 @@ const autoLauncher = new AutoLaunch({ name: 'copilot-toggle', path: app?.getPath
 if (!isPackaged) autoLauncher.disable();
 
 const createWindow = () => {
+	if (win) return;
+
 	const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
 	win = new BrowserWindow({
@@ -42,10 +44,11 @@ const createWindow = () => {
 			event.preventDefault();
 			win.hide();
 		}
-		return false;
 	});
 
-	win.on('closed', () => (win = null));
+	win.on('closed', () => {
+		win = null;
+	});
 };
 
 const fadeIn = window => {
@@ -58,16 +61,17 @@ const fadeIn = window => {
 	window.show();
 
 	let opacity = 0;
-	const interval = setInterval(() => {
+	const step = () => {
 		opacity += 0.1;
 		if (opacity >= 1) {
 			window.setOpacity(1);
-			clearInterval(interval);
 			isAnimating = false;
 		} else {
 			window.setOpacity(opacity);
+			setTimeout(step, 15);
 		}
-	}, 15);
+	};
+	step();
 };
 
 const fadeOut = window => {
@@ -75,25 +79,34 @@ const fadeOut = window => {
 	isAnimating = true;
 
 	let opacity = 1;
-	const interval = setInterval(() => {
+	const step = () => {
 		opacity -= 0.1;
 		if (opacity <= 0) {
 			window.setOpacity(0);
 			window.hide();
-			clearInterval(interval);
 			isAnimating = false;
 		} else {
 			window.setOpacity(opacity);
+			setTimeout(step, 15);
 		}
-	}, 15);
+	};
+	step();
 };
 
-const toggleWindow = () => {
-	win.isVisible() ? fadeOut(win) : (fadeIn(win), win.focus());
+const toggleWindow = open => {
+	if (!win) return;
+	const isVisible = win.isVisible();
+	if (typeof open === 'boolean') {
+		open !== isVisible && (open ? fadeIn(win) : fadeOut(win));
+	} else {
+		isVisible ? fadeOut(win) : (fadeIn(win), win.focus());
+	}
 };
 
 const createTray = async () => {
+	if (tray) return;
 	tray = new Tray(iconPath);
+
 	const isAutoLaunchEnabled = await autoLauncher.isEnabled();
 
 	const contextMenu = Menu.buildFromTemplate([
@@ -109,8 +122,8 @@ const createTray = async () => {
 		{
 			label: 'Quit',
 			click: () => {
-				if (!!app) app.isQuitting = true;
-				app?.quit();
+				app.isQuitting = true;
+				app.quit();
 			},
 		},
 	]);
@@ -126,56 +139,52 @@ const askAI = (promptPrefix, enter = true) => {
 		return;
 	}
 
-	const copyCommand = 'powershell -command "$wshell = New-Object -ComObject wscript.shell; $wshell.SendKeys(\'^{c}\')"';
-
-	exec(copyCommand, error => {
+	exec('powershell -command "$wshell = New-Object -ComObject wscript.shell; $wshell.SendKeys(\'^{c}\')"', error => {
+		toggleWindow(true);
 		if (error) return console.error(`Failed to copy selected text: ${error}`);
-
-		setTimeout(async () => {
+		setTimeout(() => {
 			const selectedText = clipboard.readText();
 			if (!selectedText) {
 				console.log('No text was selected or the clipboard is empty.');
 				return;
 			}
 			const promptText = `${promptPrefix}:\n${selectedText}`;
-			await clipboard.writeText(promptText);
-			win.isVisible() ? win.focus() : toggleWindow();
+			clipboard.writeText(promptText);
 			setTimeout(() => {
-				win.webContents.focus();
-				win.webContents.send('ask', { value: promptText, enter });
+				win?.webContents?.focus();
+				win?.webContents?.send('ask', { value: promptText, enter });
 			}, 100);
 		}, 150);
 	});
 };
 
-app?.on('ready', async () => {
+app.on('ready', async () => {
 	createWindow();
 	await createTray();
-
-	const toggleShortcut = globalShortcut.register('Alt+C', toggleWindow);
-	if (!toggleShortcut) console.log('Alt+C registration failed');
-
-	const rephraseShortcut = globalShortcut.register('Alt+R', () => askAI(`Rephrase in Regular, Formal and Detailed versions`));
-	if (!rephraseShortcut) console.log('Alt+R registration failed');
-
-	const grammarShortcut = globalShortcut.register('Alt+G', () => askAI(`Spot any grammar mistakes and share the lesson`));
-	if (!grammarShortcut) console.log('Alt+G registration failed');
-
-	const persianShortcut = globalShortcut.register('Alt+L', () => askAI(`Translate to Persian and identify critical vocab for learning`));
-	if (!persianShortcut) console.log('Alt+L registration failed');
-
-	const clipboardShortcut = globalShortcut.register('Alt+M', () => askAI(`From Clipboard`, false));
-	if (!clipboardShortcut) console.log('Alt+M registration failed');
+	const shortcuts = [
+		{ key: 'Alt+C', action: toggleWindow },
+		{ key: 'Alt+R', action: () => askAI(`Rephrase in Regular, Formal and Detailed versions`) },
+		{ key: 'Alt+G', action: () => askAI(`Spot any grammar mistakes and share the lesson`) },
+		{ key: 'Alt+L', action: () => askAI(`Translate to Persian and identify critical vocab for learning`) },
+		{ key: 'Alt+M', action: () => askAI(`From Clipboard`, false) },
+	];
+	shortcuts.forEach(({ key, action }) => {
+		if (!globalShortcut.register(key, action)) console.log(`${key} registration failed`);
+	});
 });
 
-app?.on('before-quit', () => {
-	if (!!app) app.isQuitting = true;
+app.on('will-quit', () => {
+	globalShortcut.unregisterAll();
 });
 
-app?.on('window-all-closed', () => {
-	if (process.platform !== 'darwin') app?.quit();
+app.on('before-quit', () => {
+	app.isQuitting = true;
 });
 
-app?.on('activate', () => {
+app.on('window-all-closed', () => {
+	if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('activate', () => {
 	if (!BrowserWindow.getAllWindows().length) createWindow();
 });
