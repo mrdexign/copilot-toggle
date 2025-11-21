@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const AutoLaunch = require('auto-launch');
 const { exec } = require('child_process');
@@ -13,13 +14,36 @@ const iconPath = path.join(__dirname, 'icons/icon.ico');
 const autoLauncher = new AutoLaunch({ name: 'copilot-toggle', path: app?.getPath('exe') });
 if (!isPackaged) autoLauncher.disable();
 
+// Assistant URLs
+const assistantUrls = {
+	Copilot: 'https://copilot.microsoft.com',
+	Perplexity: 'https://www.perplexity.ai',
+};
+
+// Config persistence
+const configPath = path.join(app.getPath('userData'), 'assistant-config.json');
+const loadAssistant = () => {
+	try {
+		const data = fs.readFileSync(configPath, 'utf8');
+		const parsed = JSON.parse(data);
+		return parsed.currentAssistant || 'Copilot';
+	} catch {
+		return 'Copilot';
+	}
+};
+const saveAssistant = name => {
+	fs.writeFileSync(configPath, JSON.stringify({ currentAssistant: name }));
+};
+
+let currentAssistant = loadAssistant();
+
 const createWindow = () => {
 	if (win) return;
 
 	const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
 	win = new BrowserWindow({
-		title: 'Copilot Toggle',
+		title: 'AI Assistant',
 		width,
 		height,
 		x: 0,
@@ -37,7 +61,7 @@ const createWindow = () => {
 		},
 	});
 
-	win.loadURL('https://copilot.microsoft.com/chats');
+	win.loadURL(assistantUrls[currentAssistant]);
 
 	let retryCount = 0;
 	const maxRetries = 10;
@@ -45,24 +69,30 @@ const createWindow = () => {
 
 	const ensureLoaded = () => {
 		if (!win || win.webContents.isLoading()) return;
-		win.webContents
-			.executeJavaScript(`!!document.getElementById('userInput')`)
-			.then(isLoaded => {
-				if (isLoaded) {
-					console.log('Copilot is fully loaded.');
-					retryCount = maxRetries;
-				} else if (retryCount < maxRetries) {
-					retryCount++;
-					console.log(`Retrying Copilot load (${retryCount}/${maxRetries})...`);
-					win.webContents.reload();
-					setTimeout(ensureLoaded, retryInterval);
-				} else {
-					console.warn('Max retries reached. Copilot may not have loaded correctly.');
-				}
-			})
-			.catch(err => {
-				console.error('Error checking DOM:', err);
-			});
+
+		if (currentAssistant === 'Copilot') {
+			// Copilot has a known input element we can check
+			win.webContents
+				.executeJavaScript(`!!document.getElementById('userInput')`)
+				.then(isLoaded => {
+					if (isLoaded) {
+						console.log('Copilot is fully loaded.');
+						retryCount = maxRetries;
+					} else if (retryCount < maxRetries) {
+						retryCount++;
+						console.log(`Retrying Copilot load (${retryCount}/${maxRetries})...`);
+						win.webContents.reload();
+						setTimeout(ensureLoaded, retryInterval);
+					} else {
+						console.warn('Max retries reached. Copilot may not have loaded correctly.');
+					}
+				})
+				.catch(err => console.error('Error checking DOM:', err));
+		} else {
+			// For Perplexity (or other assistants), just log once
+			console.log(`${currentAssistant} finished loading (no DOM check applied).`);
+			retryCount = maxRetries; // stop retry loop
+		}
 	};
 
 	win.webContents.on('did-fail-load', () => {
@@ -140,6 +170,15 @@ const toggleWindow = open => {
 	}
 };
 
+const setAssistant = name => {
+	currentAssistant = name;
+	saveAssistant(name);
+	if (win) {
+		win.loadURL(assistantUrls[name]);
+	}
+	tray.setToolTip(`${name} Assistant`);
+};
+
 const createTray = async () => {
 	if (tray) return;
 	tray = new Tray(iconPath);
@@ -147,7 +186,17 @@ const createTray = async () => {
 	const isAutoLaunchEnabled = await autoLauncher.isEnabled();
 
 	const contextMenu = Menu.buildFromTemplate([
-		{ label: 'Show/Hide Copilot', click: toggleWindow },
+		{ label: 'Show/Hide Assistant', click: toggleWindow },
+		{ type: 'separator' },
+		{
+			label: 'Assistant',
+			submenu: Object.keys(assistantUrls).map(name => ({
+				label: name,
+				type: 'radio',
+				checked: currentAssistant === name,
+				click: () => setAssistant(name),
+			})),
+		},
 		{ type: 'separator' },
 		{
 			label: 'Auto-launch on startup',
@@ -165,7 +214,7 @@ const createTray = async () => {
 		},
 	]);
 
-	tray.setToolTip('Copilot Assistant');
+	tray.setToolTip(`${currentAssistant} Assistant`);
 	tray.setContextMenu(contextMenu);
 	tray.on('click', toggleWindow);
 };
@@ -210,18 +259,13 @@ app.on('ready', async () => {
 	});
 });
 
-app.on('will-quit', () => {
-	globalShortcut.unregisterAll();
-});
-
+app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('before-quit', () => {
 	app.isQuitting = true;
 });
-
 app.on('window-all-closed', () => {
 	if (process.platform !== 'darwin') app.quit();
 });
-
 app.on('activate', () => {
 	if (!BrowserWindow.getAllWindows().length) createWindow();
 });
