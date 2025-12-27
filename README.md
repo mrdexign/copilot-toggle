@@ -1,6 +1,6 @@
 # ⚡ Copilot Toggle
 
-### A utility for toggling Microsoft Copilot.
+### A utility for toggling AI services.
 
 This project includes JavaScript files and can be configured or extended for custom Copilot enable/disable workflows.
 
